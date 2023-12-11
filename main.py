@@ -1,4 +1,4 @@
-from bot.bot_handler import BotHandler
+from bots.bot_handler import BotHandler
 
 def main():
     

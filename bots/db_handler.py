@@ -22,7 +22,7 @@ class DatabaseHandler:
             results_announced INTEGER DEFAULT 0
         )''')
         self.cursor.execute('''CREATE TABLE IF NOT EXISTS transactions (
-            id INTEGER PRIMARY KEY,
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
             sender TEXT,
             recipient TEXT,
             vote_id INTEGER,
@@ -33,11 +33,11 @@ class DatabaseHandler:
 
     def add_user(self, username, wallet, role):
         try:
-            self.cursor.execute('INSERT INTO users (username, wallet, role) VALUES (?, ?, ?)', 
+            self.cursor.execute('INSERT INTO users (username, wallet, role) VALUES (?, ?, ?)',
                                 (username, wallet, role))
             self.conn.commit()
         except sqlite3.IntegrityError:
-            raise ValueError("Пользователь с таким именем уже существует")
+            print("Пользователь с таким именем уже существует")
 
     def get_user(self, username):
         self.cursor.execute('SELECT * FROM users WHERE username = ?', (username,))
@@ -87,4 +87,22 @@ class DatabaseHandler:
     def mark_vote_as_announced(self, vote_id):
         self.cursor.execute('UPDATE votes SET results_announced = 1 WHERE id = ?', (vote_id,))
         self.conn.commit()
+
+    def has_user_voted(self, username, vote_id):
+        self.cursor.execute('SELECT * FROM transactions WHERE sender = ? AND vote_id = ?', (username, vote_id))
+        return self.cursor.fetchone() is not None
+    
+    def get_last_transaction(self):
+        self.cursor.execute('SELECT * FROM transactions ORDER BY id DESC LIMIT 1')
+        return self.cursor.fetchone()
+
+    def get_new_transactions_since(self, last_id):
+        self.cursor.execute('SELECT * FROM transactions WHERE id > ?', (last_id,))
+        return self.cursor.fetchall()
+    
+    def get_votes_for_candidate(self, vote_id, candidate):
+        self.cursor.execute('SELECT COUNT(*) FROM transactions WHERE vote_id = ? AND recipient = ?', (vote_id, candidate))
+        result = self.cursor.fetchone()
+        return result[0] if result else 0
+
 

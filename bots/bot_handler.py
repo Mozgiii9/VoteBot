@@ -1,10 +1,9 @@
-from datetime import datetime
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, ConversationHandler
 from db_handler import DatabaseHandler
+from datetime import datetime
 import logging
 import pytz
 
-# Константы состояний для ConversationHandler
 SELECTING_ACTION, VOTING, CONFIRM_VOTE, ADMIN_AUTH, CREATING_VOTE, ADDING_CANDIDATE = range(6)
 
 class BotHandler:
@@ -87,19 +86,27 @@ class BotHandler:
 
     def voting(self, update, context):
         active_votes = self.db.get_active_votes()
-        reply_text = "Активные голосования:\n"
+        reply_text = "Активные голосования:\n------------------------------\n"
         for vote in active_votes:
-            reply_text += f"{vote[0]}. {vote[1]} (до {vote[4]})\n"
-        reply_text += "\nВыберите номер голосования для участия."
+            # Конвертация времени окончания голосования в московское время
+            moscow_time = datetime.fromtimestamp(vote[4], pytz.timezone('Europe/Moscow')).strftime('%Y-%m-%d %H:%M')
+            reply_text += f"№{vote[0]}. {vote[1]} : актуально до {moscow_time}\n"
+        reply_text += "\nВыберите номер голосования после знака '№' для участия."
         update.message.reply_text(reply_text)
         return SELECTING_ACTION
 
     def select_vote(self, update, context):
-        vote_id = update.message.text
+        vote_id = int(update.message.text)
         vote = self.db.get_vote(vote_id)
         if vote:
             context.user_data['vote_id'] = vote_id
-            update.message.reply_text(f"Вы выбрали голосование '{vote[1]}'. Введите имя кандидата для голосования:")
+            candidates = vote[2].split(',')  # Предполагаем, что кандидаты разделены запятыми
+            reply_text = f"Вы выбрали голосование {vote[1]}\n--------------------------------------------------------------\nДоступные кандидаты:\n"
+            for i, candidate in enumerate(candidates, 1):
+                votes = self.db.get_votes_for_candidate(vote_id, candidate)
+                reply_text += f"{i}. {candidate} : количество голосов = {votes}\n"
+            reply_text += "\nВведите имя кандидата для голосования или слово 'Выход' чтобы выйти в начальное меню: "
+            update.message.reply_text(reply_text)
             return VOTING
         else:
             update.message.reply_text("Неверный номер голосования. Попробуйте еще раз:")
@@ -107,8 +114,20 @@ class BotHandler:
 
     def vote(self, update, context):
         candidate = update.message.text
+        if candidate.lower() == 'выход':
+            self.menu(update, context)
+            return ConversationHandler.END
+
+        username = update.message.from_user.username
+        vote_id = context.user_data['vote_id']
+
+        # Проверка, голосовал ли пользователь ранее в этом голосовании
+        if self.db.has_user_voted(username, vote_id):
+            update.message.reply_text("Вы уже проголосовали в этом голосовании.")
+            return ConversationHandler.END
+
         context.user_data['candidate'] = candidate
-        update.message.reply_text(f"Вы хотите проголосовать за {candidate}. Подтвердите ваш выбор (да/нет):")
+        update.message.reply_text(f"Вы действительно хотите проголосовать за кандидата {candidate}? Подтвердите Ваш выбор (введите 'Да' или 'Нет'):\n\nВнимание! Это действие будет невозможно отменить!")
         return CONFIRM_VOTE
 
     def confirm_vote(self, update, context):
